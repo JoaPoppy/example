@@ -1,0 +1,188 @@
+linux搭建sftp服务器
+转自：http://blog.csdn.net/superswordsman/article/details/49331539
+
+最近工作需要用到sftp服务器，被网上各种方法尤其是权限设置问题搞得晕头转向，现在将自己搭建过程总结了一下，整理出来一种最简单的方法可供大家参考。
+
+第1歩，添加sftp用户并制定根目录：useradd -d  /home/sftp  -s /sbin/nologin sftpuser
+
+第2歩，修改密码：执行passwd sftpuser，然后输入密码2次即可
+
+第3歩，修改配置文件，执行vi /etc/ssh/sshd_config ，在里面添加如下信息：
+
+               Subsystem       sftp    internal-sftp
+
+               Match User sftpuser
+               #X11Forwarding no
+              #AllowTcpForwarding no
+              #ForceCommand internal-sftp
+
+第4歩，设置根目录的访问权限：chmod 777 /home/sftp（可选）
+
+第5歩，重启sshd进程，使配置生效：service sshd restart
+
+至此，sftp服务器就搭建好了，使用命令sftp sftpuser@10.1.1.100登陆一下，登陆成功说明搭建成功。
+
+注：如果在配置文件里面增加了ChrootDirectory /home/sftp ，那么根目录的拥有者和属组必须是root，此时目录权限应这样设置：
+
+chown root:root /home/sftp
+
+chmod 755 /home/sftp
+
+此时只有用户root对/home/sftp目录有写入权限，而使用sftpuser这个用户登陆后是没有写入权限的，故需要在/home/sftp/目录下再新建一个文件夹，并赋予sftpuser读写权限，这样才能完成sftp操作。
+
+由此可见，在配置文件中增加了ChrootDirectory后，需要特别注意权限问题。
+
+常见问题:
+
+1、sftp登录时报错：
+
+Connecting to 10.66.2.111...
+/etc/ssh/ssh_config: line 60: Bad configuration option: UseDNS
+/etc/ssh/ssh_config: terminating, 1 bad configuration options
+Couldn't read packet: Connection reset by peer
+
+该问题是由dns解析导致，在客户端的配置文件/etc/ssh/ssh_config中查看是否有UseDNS no，如果有，注释掉该行。
+
+2、sftp连接时特别慢，而且警告：reverse mapping checking getaddrinfo for bogon [10.91.0.227] failed - POSSIBLE BREAK-IN ATTEMPT!
+
+可能原因：在sftp服务器上找到配置文件/etc/ssh/sshd_config，将GSSAPIAuthentication yes 改为GSSAPIAuthentication no
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+linux 搭建SFTP服务器
+2018年01月02日 14:02:51 zx1323 阅读数：8377
+参考：http://www.koukousky.com/server/linux/217.html
+
+http://blog.csdn.net/zwl19920815/article/details/54893721
+
+
+https://blog.zengrong.net/post/1616.html
+
+
+
+在百度上看到一个回答：sftp 走的是ssh 协议 开启了sshd就相当于开启了sftp
+
+个人使用的是阿里云的centos默认开启了ssh
+
+一开始以为：创建一个用户组，再添加几个帐号，设置下权限就好了
+
+然而，to young to simple 
+
+
+
+步骤：
+
+1.创建一个名为 sftp 的组
+
+groupadd sftp  
+
+
+
+2.创建用户 sftp_admin
+
+写法1：
+
+
+useradd -g sftp -s /sbin/nologin -M sftp_admin
+-g 加入到sftp组
+-s 禁止登录
+-M 不要自动建立用户的登入目录
+写法2：
+
+useradd -g sftp -s /bin/false  -M sftp_admin
+-g 加入到sftp组
+-s 禁止登录（写法不同，有啥差别，暂时不清楚）
+-M 不要自动建立用户的登入目录
+
+3.设置密码
+
+passwd  sftp_admin
+
+重复输入两次密码
+
+
+
+4.创建sftp存放文件的目录
+
+mkdir /home/sftp/admin
+
+
+
+5.修改文件夹 拥有者
+
+chown -R sftp_admin:sftp /home/sftp/admin/
+
+-R  如果/home/sftp/admin/路径下还有子文件，则全部修改掉
+
+6.设置，用户登录后的 默认根目录
+
+
+usermod -d /tmp test (test为你的用户名) 这种改法是无效的 
+只能通过 修改配置文件
+vi /etc/ssh/sshd_config  
+注释掉这一行：Subsystem sftp /usr/libexec/openssh/sftp-server
+Subsystem sftp internal-sftp
+X11Forwarding no
+AllowTcpForwarding no
+ForceCommand internal-sftp #限制root的ssh登录
+Match User sftp_admin #限制的用户
+ChrootDirectory /home/sftp #用户的根目录
+目录权限设置 
+ChrootDirectory设置的目录权限及其所有的上级文件夹权限，属主和属组必须是root；
+ChrootDirectory设置的目录权限及其所有的上级文件夹权限，只有属主能拥有写权限，也就是说权限最大设置只能是755。
+讲真，这一块坑了蛮久的
+
+
+7.重启配置
+
+service sshd restart
+
+（每次修改配置文件后，如果是使用的FileZilla客户端来连接sftp，那FileZilla客户端也需要重启）
+
+
+
+
+
+==================使用过程中，遇到的一些报错======================
+
+
+
+修改了组写入权限报错
+bad ownership or modes for chroot directory "/home/sftp"
+参考：http://blog.sina.com.cn/s/blog_4fd50c3901018a0l.html
+
+
+使用ssh2访问出现提示This service allows sftp connections only.
+这是因为在server端设置的/etc/sshd_config文件中，需要设置为： AllowTcpForwarding 应该设置为yes才可。 如果没有设置为yes的话，用户就只能通过sftp访问指定目录,而且不能进行ssh登录. 只有把 AllowTcpForwarding no 改为 AllowTcpForwarding yes ，用户才能通过ssh登录然后访问目录
+
+
+FileZilla连接报错：
+错误: Server unexpectedly closed network connection
+错误: 无法连接到服务器
+这个是，因为配置文件  /etc/sshd_config中
+  当前登录的帐号  
+ChrootDirectory  对应的文件夹  不是root用户 和root用户组
+但是有遇到了个大问题，root账户，不能进行ssh登录了
+
+
+https://askubuntu.com/questions/553446/ssh-on-but-unable-to-connect-says-only-sftp
+测试了下，只要把配置文件里面的这一行注释掉，重启 ssh服务后 就好了
+ForceCommand internal-sftp
+
+
+遇到一个问题：创建的组，成员之间不能互相修改文件，每次都要手动改权限，太麻烦了，
+用户创建文件夹的默认权限：通过umask值来设定
+
+UMASK介绍： http://blog.51cto.com/yttitan/1568662
+
+SFTP chroot后如何设置umask： http://blog.51cto.com/yexiang/1609204
+
+修改配置文件   /etc/pam.d/sshd
+
+添加  session     optional pam_umask.so umask=0002
+
+重启sshd服务
